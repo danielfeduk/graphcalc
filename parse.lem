@@ -1,0 +1,176 @@
+%include {
+	#include <stdlib.h>
+	#include <stdarg.h>
+	#include <string.h>
+	#include <stdio.h>
+	
+	#include "lex.h"
+	#include "common.h"
+
+	#define EXTRA_ARG struct expr *
+
+
+	uint32_t builtin_plus(struct expr **args) {
+		return 0;
+	}
+
+	static inline struct expr
+	**nargs(unsigned short n, ...)
+	{
+		va_list ap; 
+		struct expr **args = malloc(n * sizeof(struct expr *));
+		va_start(ap, n);
+		for(int i = 0; i < n; ++i) {
+			args[i] = malloc(sizeof(struct expr));
+			*(args[i]) = va_arg(ap, struct expr);
+		}
+		va_end(ap);
+		return args;
+	}
+}
+
+%extra_argument { EXTRA_ARG tree }
+
+%token_type { struct token }
+
+%parse_failure {
+	printf("Syntax error\n");
+	exit(1);
+}
+
+%token_prefix TOK_
+
+%token WHITESP UNDEFINED END.
+%token IDENTIFIER CONST.
+%token EQUALS OPEN CLOSE COMMA.
+%token PLUS MINUS TIMES SLASH MODULO POWER.
+%token BAR KW_SQRT.
+
+%left PLUS MINUS.
+%left TIMES SLASH.
+%right POWER.
+
+
+%type expr { struct expr }
+
+	start ::= expr(E) END. {
+		*tree = E;
+	}
+
+	expr(E) ::= CONST(N). {
+		E.type = CONST;
+		E.val = strtod(N.content, NULL);
+	}
+	
+	expr(E) ::= IDENTIFIER(I). {
+		E.type = NAME;
+		E.name = I.content;
+	}
+
+	expr(E) ::= OPEN expr(X) CLOSE. {
+		E = X;
+	}
+
+%type tuplepart { struct expr ** }
+
+	tuplepart(T) ::= expr(E). {
+		T = malloc(2*sizeof(struct expr *));
+		T[0] = malloc(sizeof(struct expr));
+		*(T[0]) = E;
+		T[1] = NULL;
+	}
+
+	tuplepart(T) ::= tuplepart(X) COMMA expr(E). {
+		size_t s;
+		for(s = 0; X[s]; ++s);
+		assert(X);
+		T = reallocarray(X, (s + 2), sizeof(struct expr *));
+		assert(T);
+		T[s] = malloc(sizeof(struct expr));
+		*(T[s]) = E;
+		T[s + 1] = NULL;
+	}
+
+	expr(E) ::= IDENTIFIER(I) OPEN tuplepart(T) CLOSE. {
+		E.type = FUNCALL;
+		E.fname = I.content;
+		E.fargs = T;
+	}
+
+	expr(E) ::= expr(A) PLUS expr(B). {
+		E.type = BUILTIN;
+		E.op = BUILTIN_ADD;
+		E.args = nargs(2, A, B);
+	}
+	
+	expr(E) ::= expr(A) MINUS expr(B). {
+		E.type = BUILTIN;
+		E.op = BUILTIN_SUB;
+		E.args = nargs(2, A, B);
+	}
+
+	expr(E) ::= MINUS expr(X). {
+		E.type = BUILTIN;
+		E.op = BUILTIN_SUB;
+		struct expr zero = {
+			.type = CONST,
+			.val = 0.0
+		};
+		E.args = nargs(2, zero, X);
+	}
+	
+	expr(E) ::= expr(A) TIMES expr(B). {
+		E.type = BUILTIN;
+		E.op = BUILTIN_MUL;
+		E.args = nargs(2, A, B);
+	}
+
+	expr(E) ::= expr(A) SLASH expr(B). {
+		E.type = BUILTIN;
+		E.op = BUILTIN_DIV;
+		E.args = nargs(2, A, B);
+	}
+	
+	expr(E) ::= expr(A) POWER expr(B). {
+		E.type = BUILTIN;
+		E.op = BUILTIN_EXP;
+		E.args = nargs(2, A, B);
+	}
+	
+	expr(E) ::= KW_SQRT OPEN expr(X) CLOSE. {
+		E.type = BUILTIN;
+		E.op = BUILTIN_SQRT;
+		E.fargs = nargs(1, X);
+	}
+
+	expr(E) ::= BAR expr(X) BAR. {
+		E.type = BUILTIN;
+		E.op = BUILTIN_ABS;
+		E.args = nargs(1, X);
+	}
+
+%code {
+
+	void *ParseAlloc(void *(size_t));
+	void ParseFree(void *, void(void *));
+	void Parse(void *, TOKTYPE, struct token, EXTRA_ARG);
+
+	struct expr parse_formula(const char *src)
+	{
+		struct token tok;
+		void *parser = ParseAlloc(malloc);
+		struct expr *tree = malloc(sizeof(struct expr));
+
+		yyinit(src);
+
+		do {
+			tok = yylex();
+			Parse(parser, tok.type, tok, tree);
+		} while (tok.type != TOK_END);
+		Parse(parser, 0, tok, tree);
+
+		ParseFree(parser, free);
+
+		return *tree;
+	}
+}

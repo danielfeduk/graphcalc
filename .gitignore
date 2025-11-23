@@ -1,0 +1,4 @@
+*.o
+*.gen.*
+c.mk
+PLAN

@@ -1,0 +1,163 @@
+#include <assert.h>
+#include <stdlib.h>
+#include <stdarg.h>
+#include <string.h>
+#include <stdio.h>
+#include "common.h"
+
+typedef uint32_t Temporary;
+
+static Temporary compile(struct expr, char **, long *);
+
+/* look into bsd sbuf? */
+static inline void
+memfmt(char **bufloc, long *n, const char *fmt, ...)
+{
+	va_list ap;
+	size_t advance = 0;
+	va_start(ap, fmt);
+	assert(*n > 0);
+	assert(fmt);
+	assert(bufloc);
+	assert(*bufloc);
+	advance = vsnprintf(*bufloc, *n, fmt, ap);
+	va_end(ap);
+	*bufloc += advance;
+	*n -= advance;
+	assert(*n > 0);
+}
+
+#define PRNT(...) memfmt(bufloc, n, __VA_ARGS__)
+
+static Temporary
+newtmp(void)
+{
+	static Temporary t = 1;
+	return t++;
+}
+
+#define SET	"\tfloat tmp%d = "
+#define END	";\n"
+#define T	"tmp%d"
+
+static Temporary
+compbi(struct expr expr, char **bufloc, long *n)
+{
+	int nargs;
+	Temporary args[16];
+	for(nargs = 0; expr.args[nargs]; ++nargs) {
+		args[nargs] = compile(*(expr.args[nargs]), bufloc, n);
+	}
+	
+	Temporary t = newtmp();
+
+	switch(expr.op) {
+	case BUILTIN_ADD:
+		PRNT(SET T "+" T END, t, args[0], args[1]);
+		break;
+	case BUILTIN_SUB:
+		PRNT(SET T "-" T END, t, args[0], args[1]);
+		break;
+	case BUILTIN_MUL:
+		PRNT(SET T "*" T END, t, args[0], args[1]);
+		break;
+	case BUILTIN_DIV:
+		PRNT(SET T "/" T END, t, args[0], args[1]);
+		break;
+	case BUILTIN_EXP:
+		PRNT(SET "pow(" T ", " T ")" END, t, args[0], args[1]);
+		break;
+	case BUILTIN_SQRT:
+		PRNT(SET "sqrt(" T ")" END, t, args[0]);
+		break;
+	case BUILTIN_ABS:
+		PRNT(SET "abs(" T ")" END, t, args[0]);
+		break;
+	}
+	return t;
+}
+
+static Temporary
+compile(struct expr e, char **bufloc, long *n)
+{
+	switch(e.type) {
+	case CONST: {
+		Temporary t = newtmp();
+		PRNT(SET "%f" END, t, e.val);
+		return t;
+	}
+		break;
+	case NAME: {
+		Temporary t = newtmp();
+		PRNT(SET "%s" END, t, e.name);
+		return t;
+	}
+		break;
+	case BUILTIN:
+		return compbi(e, bufloc, n);
+	case FUNCALL: {
+		Temporary t = newtmp();
+		int nargs;
+		Temporary args[16];
+		for(nargs = 0; e.fargs[nargs]; ++nargs) {
+			args[nargs] = compile(*(e.fargs[nargs]), bufloc, n);
+		}
+		assert(nargs > 0);
+		PRNT(SET "%s(" T, t, e.fname, args[0]);
+		for(int i = 1; i < nargs; ++i) {
+			PRNT(", " T, args[i]);
+		}
+		PRNT(")" END);
+		return t;
+	}
+		break;
+	}
+}
+
+char
+*codegenfn(const char *fsig, const char *formula)
+{
+	long m = FRAGMAXSZ;
+	long *n = &m;
+	char *buf = malloc(m);
+	char *orig = buf;
+	char **bufloc = &buf;
+	struct expr e = parse_formula(formula);
+//	printexpr(e, 0);
+	PRNT("float %s {\n", fsig);
+	Temporary t = compile(e, bufloc, n);
+	PRNT("\treturn tmp%d;\n}\n\n", t);
+	*buf = '\0';
+	return orig;
+}
+
+// couldn't you just compile two frag shaders and link them?
+static const char fragfmt[] = {
+	"#version 330 core\n"
+	"uniform float u_time, u_szx, u_szy, u_sclx, u_scly;\n"
+	"out vec4 fragColor;\n"
+	"\n%s\n\n"
+	"void main() {\n"
+		"vec2 pos = gl_FragCoord.xy;\n"
+		"float x = u_sclx * (pos.x / u_szx) - (u_sclx/2);\n"
+		"float y = u_scly * (pos.y / u_szy) - (u_scly/2);\n"
+		"float n = f(x, y, u_time);\n"
+		"float npos = max(n, 0.0);\n"
+		"float nneg = -min(n, 0.0);\n"
+		"vec3 color = vec3(nneg, 0, npos);\n"
+		"if(nneg > 1.0) color = vec3(1.0, 1.0, 0.0);\n"
+		"if(npos > 1.0) color = vec3(0.0, 1.0, 1.0);\n"
+		"fragColor = vec4(color, 1.0);\n"
+	"}\n"
+};
+
+char
+*compilefrag(const char *formula)
+{
+	assert(strlen(fragfmt) < FRAGMAXSZ);
+	char *frag;
+	asprintf(&frag, fragfmt,
+		codegenfn("f(float x, float y, float z)", formula)
+	);
+	return frag;
+}
