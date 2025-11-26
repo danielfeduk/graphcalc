@@ -1,7 +1,7 @@
 -include config.mk
 LFLAGS+= -lSDL2 -lepoxy -lGL -lm
 OBJ= lex.gen.o parse.gen.o driver.o compile.o
-PROG= graphics
+PROG= graphcalc
 .PHONY: all clean
 
 all: ${PROG}
