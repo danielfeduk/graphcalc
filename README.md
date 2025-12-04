@@ -20,7 +20,5 @@ make
 
 You run the command as so:
 ```
-./graphcalc [formula]
+./graphcalc [-f filename] [formula]
 ```
-
-

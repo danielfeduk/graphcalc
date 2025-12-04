@@ -25,6 +25,8 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <sysexits.h>
+#include <unistd.h>
+#include <err.h>
 #include "common.h"
 
 // fullscreen quad
@@ -63,6 +65,13 @@ float quad_vertices[] = {
 	1.0f, 1.0f,	// top right
 	-1.0f, 1.0f	// top left
 };
+
+static void
+usage(char *progname)
+{
+	fprintf(stderr, "Usage: %s [-f file] [formula]\n", progname);
+	exit(EX_USAGE);
+}
 
 static GLuint
 compileshader(const char *src, GLenum shadertype)
@@ -114,7 +123,7 @@ static char
 }
 
 static GLuint
-mkshaderprog(char *formula)
+mkshaderprog(const char *formula)
 {
 	char *frag_src = composefrag(formula);
 	//printf("%s", frag_src);
@@ -141,16 +150,67 @@ mkshaderprog(char *formula)
 	return program;
 }
 
+/*static const char
+*slurp(FILE *fp)
+{
+	int n;
+	char *result;
+	fseek(fp, 0, SEEK_END);
+	n = ftell(fp);
+	result = malloc(n + 1);
+	fseek(fp, 0, SEEK_SET);
+	fread(result, 1, n, fp);
+	result[n] = '\0';
+	return result;
+}*/
+
+static const char
+*slurp(FILE *fp)
+{
+	int c;
+	char *result;
+
+	result = malloc(FRAGMAXSZ);
+
+	for(int i = 0; (c = fgetc(fp)) != EOF; ++i) {
+		if(i >= FRAGMAXSZ) break; // truncate or give up??
+		result[i] = c;
+	}
+
+	return result;
+}
+
 int
 main(int argc, char *argv[])
 {
-	if(argc != 2) {
-		fprintf(stderr, "Usage: %s [formula]\n", argv[0]);
-		exit(EX_USAGE);
+	int opt;
+	const char *formula = NULL;
+	while((opt = getopt(argc, argv, "f:")) != -1) {
+		switch(opt) {
+		case 'f': {
+			const char *filename = optarg; 	  
+			FILE *fp = fopen(filename, "r");
+			if(!fp) err(EX_NOINPUT, "couldn't open formula file");
+			formula = slurp(fp);
+		}
+			break;
+
+		default: usage(argv[0]);
+
+		}
+	}
+	
+	if(!formula) {
+		if(optind >= argc) usage(argv[0]);
+		if(!strncmp(argv[optind], "-", 2)) {
+			formula = slurp(stdin);
+		} else {
+			formula = argv[optind];
+		}
 	}
 
 	if (SDL_Init(SDL_INIT_VIDEO) < 0) {
-		printf("SDL init error: %s\n", SDL_GetError());
+		fprintf(stderr, "SDL init error: %s\n", SDL_GetError());
 		exit(EX_UNAVAILABLE);
 	}
 	
@@ -165,20 +225,20 @@ main(int argc, char *argv[])
 		width, height, SDL_WINDOW_OPENGL | SDL_WINDOW_RESIZABLE);
 	
 	if (!window) {
-		printf("Window creation error: %s\n", SDL_GetError());
+		fprintf(stderr, "Window creation error: %s\n", SDL_GetError());
 		SDL_Quit();
 		exit(EX_UNAVAILABLE);
 	}
 	
 	SDL_GLContext context = SDL_GL_CreateContext(window);
 	if (!context) {
-		printf("OpenGL context creation error: %s\n", SDL_GetError());
+		fprintf(stderr, "OpenGL context creation error: %s\n", SDL_GetError());
 		SDL_DestroyWindow(window);
 		SDL_Quit();
 		exit(1);
 	}
 	
-	GLuint shader_program = mkshaderprog(argv[1]);
+	GLuint shader_program = mkshaderprog(formula);
 	
 	GLuint VAO, VBO;
 	glGenVertexArrays(1, &VAO);
