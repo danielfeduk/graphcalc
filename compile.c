@@ -57,7 +57,7 @@ newtmp(void)
 	return t++;
 }
 
-#define SET	"\tfloat tmp%d = "
+#define SET	"\t" NUMBER " tmp%d = "
 #define END	";\n"
 #define T	"tmp%d"
 
@@ -68,6 +68,7 @@ compbi(struct expr expr, char **bufloc, long *n)
 	Temporary args[16];
 	for(nargs = 0; expr.args[nargs]; ++nargs) {
 		args[nargs] = compile(*(expr.args[nargs]), bufloc, n);
+		free(expr.args[nargs]);
 	}
 	
 	Temporary t = newtmp();
@@ -106,13 +107,13 @@ compile(struct expr e, char **bufloc, long *n)
 		Temporary t = newtmp();
 		PRNT(SET "%f" END, t, e.val);
 		return t;
-	}
+		}
 		break;
 	case NAME: {
 		Temporary t = newtmp();
 		PRNT(SET "%s" END, t, e.name);
 		return t;
-	}
+		}
 		break;
 	case BUILTIN:
 		return compbi(e, bufloc, n);
@@ -122,6 +123,7 @@ compile(struct expr e, char **bufloc, long *n)
 		Temporary args[16];
 		for(nargs = 0; e.fargs[nargs]; ++nargs) {
 			args[nargs] = compile(*(e.fargs[nargs]), bufloc, n);
+			free(e.fargs[nargs]);
 		}
 		assert(nargs > 0);
 		PRNT(SET "%s(" T, t, e.fname, args[0]);
@@ -130,13 +132,13 @@ compile(struct expr e, char **bufloc, long *n)
 		}
 		PRNT(")" END);
 		return t;
-	}
+		}
 		break;
 	}
 }
 
 char
-*codegenfn(const char *fsig, const char *formula)
+*codegenfn(const char **fsig, const char *formula)
 {
 	long m = FRAGMAXSZ;
 	long *n = &m;
@@ -145,7 +147,14 @@ char
 	char **bufloc = &buf;
 	struct expr e = parse_formula(formula);
 //	printexpr(e, 0);
-	PRNT("float %s {\n", fsig);
+	PRNT(NUMBER " %s(", fsig[0]);
+	if(fsig[1]) {
+		PRNT(NUMBER " %s", fsig[1]);
+		for(int i = 2; fsig[i]; ++i) {
+			PRNT(", float %s", fsig[i]);
+		}
+	}
+	PRNT(")\n {\n");
 	Temporary t = compile(e, bufloc, n);
 	PRNT("\treturn tmp%d;\n}\n\n", t);
 	*buf = '\0';

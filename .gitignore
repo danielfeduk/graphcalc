@@ -1,5 +1,5 @@
 *.o
 *.gen.*
-c.mk
+config.mk
 PLAN
 graphcalc

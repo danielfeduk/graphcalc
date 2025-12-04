@@ -112,7 +112,11 @@ struct token yylex(void)
 	next_tok.type = type;
 	next_tok.lineno = yylineno;
 	next_tok.content = genyytext();
-
+	if(type != TOK_CONST && type != TOK_IDENTIFIER) {
+		free(next_tok.content);
+		next_tok.content = NULL;
+	}
+	
 	return next_tok;
 }
 

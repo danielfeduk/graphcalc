@@ -41,6 +41,7 @@
 	expr(E) ::= CONST(N). {
 		E.type = CONST;
 		E.val = strtod(N.content, NULL);
+		free(N.content);
 	}
 	
 	expr(E) ::= IDENTIFIER(I). {
