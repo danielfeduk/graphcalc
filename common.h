@@ -1,5 +1,8 @@
 #include <stdint.h>
 #include <stdbool.h>
+#include <stdarg.h>
+#include <stdlib.h>
+#include <stdio.h>
 
 enum builtin {
 	BUILTIN_ADD,
@@ -44,8 +47,6 @@ struct constdef {
 	struct expr bound;
 };
 
-#include <stdio.h>
-
 #define FRAGMAXSZ	262144
 #define LOGMAXSZ	1024
 
@@ -53,6 +54,20 @@ struct constdef {
 #define DEFHEIGHT	600
 
 void compilefn(const char*, const char*);
-char *compilefrag(const char*);
+char *codegenfn(const char *, const char *);
 struct expr parse_formula(const char *);
 void printexpr(struct expr, int);
+
+static inline struct expr
+**nargs(unsigned short n, ...)
+{
+	va_list ap; 
+	struct expr **args = malloc(n * sizeof(struct expr *));
+	va_start(ap, n);
+	for(int i = 0; i < n; ++i) {
+		args[i] = malloc(sizeof(struct expr));
+		*(args[i]) = va_arg(ap, struct expr);
+	}
+	va_end(ap);
+	return args;
+}

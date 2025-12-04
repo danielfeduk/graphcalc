@@ -19,6 +19,7 @@
  *                                                                            *
  ******************************************************************************/
 
+#include <assert.h>
 #include <epoxy/gl.h>
 #include <SDL2/SDL.h>
 #include <stdio.h>
@@ -33,6 +34,25 @@ const char *vertex_shader_src =
 	"void main() {\n"
 	"	gl_Position = vec4(aPos.x, aPos.y, 0.0, 1.0);\n"
 	"}\n";
+
+const char *fragment_main_src = 
+	"#version 330 core\n"
+	"uniform float u_time, u_szx, u_szy, u_sclx, u_scly;\n"
+	"out vec4 fragColor;\n"
+	"\n%s\n\n"
+	"void main() {\n"
+		"vec2 pos = gl_FragCoord.xy;\n"
+		"float x = u_sclx * (pos.x / u_szx) - (u_sclx/2);\n"
+		"float y = u_scly * (pos.y / u_szy) - (u_scly/2);\n"
+		"float n = f(x, y, u_time);\n"
+		"float npos = max(n, 0.0);\n"
+		"float nneg = -min(n, 0.0);\n"
+		"vec3 color = vec3(nneg, 0, npos);\n"
+		"if(nneg > 1.0) color = vec3(1.0, 1.0, 0.0);\n"
+		"if(npos > 1.0) color = vec3(0.0, 1.0, 1.0);\n"
+		"fragColor = vec4(color, 1.0);\n"
+	"}\n"
+	;
 
 // fullscreen quad vertices
 float quad_vertices[] = {
@@ -63,10 +83,40 @@ compileshader(const char *src, GLenum shadertype)
 	return shader;
 }
 
+static const char fragfmt[] = {
+	"#version 330 core\n"
+	"uniform float u_time, u_szx, u_szy, u_sclx, u_scly;\n"
+	"out vec4 fragColor;\n"
+	"\n%s\n\n"
+	"void main() {\n"
+		"vec2 pos = gl_FragCoord.xy;\n"
+		"float x = u_sclx * (pos.x / u_szx) - (u_sclx/2);\n"
+		"float y = u_scly * (pos.y / u_szy) - (u_scly/2);\n"
+		"float n = f(x, y, u_time);\n"
+		"float npos = max(n, 0.0);\n"
+		"float nneg = -min(n, 0.0);\n"
+		"vec3 color = vec3(nneg, 0, npos);\n"
+		"if(nneg > 1.0) color = vec3(1.0, 1.0, 0.0);\n"
+		"if(npos > 1.0) color = vec3(0.0, 1.0, 1.0);\n"
+		"fragColor = vec4(color, 1.0);\n"
+	"}\n"
+};
+
+static char
+*composefrag(const char *formula)
+{
+	assert(strlen(fragfmt) < FRAGMAXSZ);
+	char *frag;
+	asprintf(&frag, fragfmt,
+		codegenfn("f(float x, float y, float z)", formula)
+	);
+	return frag;
+}
+
 static GLuint
 mkshaderprog(char *formula)
 {
-	char *frag_src = compilefrag(formula);
+	char *frag_src = composefrag(formula);
 	//printf("%s", frag_src);
 
 	GLuint vert = compileshader(vertex_shader_src, GL_VERTEX_SHADER);

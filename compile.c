@@ -151,34 +151,3 @@ char
 	*buf = '\0';
 	return orig;
 }
-
-// couldn't you just compile two frag shaders and link them?
-static const char fragfmt[] = {
-	"#version 330 core\n"
-	"uniform float u_time, u_szx, u_szy, u_sclx, u_scly;\n"
-	"out vec4 fragColor;\n"
-	"\n%s\n\n"
-	"void main() {\n"
-		"vec2 pos = gl_FragCoord.xy;\n"
-		"float x = u_sclx * (pos.x / u_szx) - (u_sclx/2);\n"
-		"float y = u_scly * (pos.y / u_szy) - (u_scly/2);\n"
-		"float n = f(x, y, u_time);\n"
-		"float npos = max(n, 0.0);\n"
-		"float nneg = -min(n, 0.0);\n"
-		"vec3 color = vec3(nneg, 0, npos);\n"
-		"if(nneg > 1.0) color = vec3(1.0, 1.0, 0.0);\n"
-		"if(npos > 1.0) color = vec3(0.0, 1.0, 1.0);\n"
-		"fragColor = vec4(color, 1.0);\n"
-	"}\n"
-};
-
-char
-*compilefrag(const char *formula)
-{
-	assert(strlen(fragfmt) < FRAGMAXSZ);
-	char *frag;
-	asprintf(&frag, fragfmt,
-		codegenfn("f(float x, float y, float z)", formula)
-	);
-	return frag;
-}

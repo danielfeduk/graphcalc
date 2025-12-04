@@ -8,25 +8,6 @@
 	#include "common.h"
 
 	#define EXTRA_ARG struct expr *
-
-
-	uint32_t builtin_plus(struct expr **args) {
-		return 0;
-	}
-
-	static inline struct expr
-	**nargs(unsigned short n, ...)
-	{
-		va_list ap; 
-		struct expr **args = malloc(n * sizeof(struct expr *));
-		va_start(ap, n);
-		for(int i = 0; i < n; ++i) {
-			args[i] = malloc(sizeof(struct expr));
-			*(args[i]) = va_arg(ap, struct expr);
-		}
-		va_end(ap);
-		return args;
-	}
 }
 
 %extra_argument { EXTRA_ARG tree }
