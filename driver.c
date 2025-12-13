@@ -28,6 +28,7 @@
 #include <unistd.h>
 #include <err.h>
 #include "common.h"
+#include "sys.h"
 
 // fullscreen quad
 const char *vertex_shader_src =
@@ -94,20 +95,22 @@ compileshader(const char *src, GLenum shadertype)
 
 static const char fragfmt[] = {
 	"#version 330 core\n"
-	"uniform " NUMBER " u_time, u_szx, u_szy, u_sclx, u_scly;\n"
-	"out vec4 fragColor;\n"
+	"uniform " NUMBER " u_time;\n"
+	"uniform vec2 u_sz;"
+	"uniform mat2 u_win;"
+	"out vec4 frag_color;\n"
 	"\n%s\n\n"
 	"void main() {\n"
 		"vec2 pos = gl_FragCoord.xy;\n"
-		NUMBER " x = u_sclx * (pos.x / u_szx) - (u_sclx/2);\n"
-		NUMBER " y = u_scly * (pos.y / u_szy) - (u_scly/2);\n"
+		NUMBER " x = u_win[0].x + (pos.x / u_sz.x) * (u_win[1].x - u_win[0].x);\n"
+		NUMBER "y = u_win[0].y + (pos.y / u_sz.y) * (u_win[1].y - u_win[0].y);\n"
 		NUMBER " n = f(x, y, u_time);\n"
 		NUMBER " npos = max(n, 0.0);\n"
 		NUMBER " nneg = -min(n, 0.0);\n"
 		"vec3 color = vec3(nneg, 0, npos);\n"
 		"if(nneg > 1.0) color = vec3(1.0, 1.0, 0.0);\n"
 		"if(npos > 1.0) color = vec3(0.0, 1.0, 1.0);\n"
-		"fragColor = vec4(color, 1.0);\n"
+		"frag_color = vec4(color, 1.0);\n"
 	"}\n"
 };
 
@@ -148,53 +151,39 @@ mkshaderprog(const char *formula)
 	}
 	
 	glDeleteShader(vert);
-	glDeleteShader(frag);	
+	glDeleteShader(frag);
 	return program;
-}
-
-/*static const char
-*slurp(FILE *fp)
-{
-	int n;
-	char *result;
-	fseek(fp, 0, SEEK_END);
-	n = ftell(fp);
-	result = malloc(n + 1);
-	fseek(fp, 0, SEEK_SET);
-	fread(result, 1, n, fp);
-	result[n] = '\0';
-	return result;
-}*/
-
-static const char
-*slurp(FILE *fp)
-{
-	int c;
-	char *result;
-
-	result = malloc(FRAGMAXSZ);
-
-	for(int i = 0; (c = fgetc(fp)) != EOF; ++i) {
-		if(i >= FRAGMAXSZ) break; // truncate or give up??
-		result[i] = c;
-	}
-
-	return result;
 }
 
 int
 main(int argc, char *argv[])
 {
 	int opt;
+	float win[4] = {-1.0, 1.0, -1.0, 1.0};
 	const char *formula = NULL;
-	while((opt = getopt(argc, argv, "f:")) != -1) {
+	
+	while((opt = getopt(argc, argv, "f:x:X:y:Y:")) != -1) {
 		switch(opt) {
 		case 'f': {
-			const char *filename = optarg; 	  
+			const char *filename = optarg;
 			FILE *fp = fopen(filename, "r");
 			if(!fp) err(EX_NOINPUT, "couldn't open formula file");
-			formula = slurp(fp);
+			formula = GS_slurp(fp);
 		}
+			break;
+
+		// todo add getopt long, validate input is a number.
+		case 'x':
+			win[0] = strtof(optarg, NULL);
+			break;
+		case 'X':
+			win[1] = strtof(optarg, NULL);
+			break;
+		case 'y':
+			win[2] = strtof(optarg, NULL);
+			break;
+		case 'Y':
+			win[3] = strtof(optarg, NULL);
 			break;
 
 		default: usage(argv[0]);
@@ -205,41 +194,13 @@ main(int argc, char *argv[])
 	if(!formula) {
 		if(optind >= argc) usage(argv[0]);
 		if(!strncmp(argv[optind], "-", 2)) {
-			formula = slurp(stdin);
+			formula = GS_slurp(stdin);
 		} else {
 			formula = argv[optind];
 		}
 	}
 
-	if (SDL_Init(SDL_INIT_VIDEO) < 0) {
-		fprintf(stderr, "SDL init error: %s\n", SDL_GetError());
-		exit(EX_UNAVAILABLE);
-	}
-	
-	SDL_GL_SetAttribute(SDL_GL_CONTEXT_MAJOR_VERSION, 3);
-	SDL_GL_SetAttribute(SDL_GL_CONTEXT_MINOR_VERSION, 3);
-	SDL_GL_SetAttribute(SDL_GL_CONTEXT_PROFILE_MASK, SDL_GL_CONTEXT_PROFILE_CORE);
-	SDL_GL_SetAttribute(SDL_GL_DOUBLEBUFFER, 1);
-	
-	int width = DEFWIDTH, height = DEFHEIGHT;
-	SDL_Window* window = SDL_CreateWindow("graphcalc - math visual",
-		SDL_WINDOWPOS_CENTERED, SDL_WINDOWPOS_CENTERED,
-		width, height, SDL_WINDOW_OPENGL | SDL_WINDOW_RESIZABLE);
-	
-	if (!window) {
-		fprintf(stderr, "Window creation error: %s\n", SDL_GetError());
-		SDL_Quit();
-		exit(EX_UNAVAILABLE);
-	}
-	
-	SDL_GLContext context = SDL_GL_CreateContext(window);
-	if (!context) {
-		fprintf(stderr, "OpenGL context creation error: %s\n", SDL_GetError());
-		SDL_DestroyWindow(window);
-		SDL_Quit();
-		exit(1);
-	}
-	
+	struct GS_ctx *ctx = GS_init();
 	GLuint shader_program = mkshaderprog(formula);
 	
 	GLuint VAO, VBO;
@@ -254,51 +215,30 @@ main(int argc, char *argv[])
 	glEnableVertexAttribArray(0);
 	
 	GLint time_loc = glGetUniformLocation(shader_program, "u_time");
-	GLint sclx_loc = glGetUniformLocation(shader_program, "u_sclx");
-	GLint scly_loc = glGetUniformLocation(shader_program, "u_scly");
-	GLint szx_loc = glGetUniformLocation(shader_program, "u_szx");
-	GLint szy_loc = glGetUniformLocation(shader_program, "u_szy");
+	GLint sz_loc = glGetUniformLocation(shader_program, "u_sz");
+	GLint win_loc = glGetUniformLocation(shader_program, "u_win");
 
-	// Main loop
-	int running = 1;
-	SDL_Event event;
-	
-	while (running) {
-		while (SDL_PollEvent(&event)) {
-			if (event.type == SDL_QUIT) {
-				running = 0;
-			}
-			if (event.type == SDL_WINDOWEVENT && event.window.event == SDL_WINDOWEVENT_RESIZED) {
-				width = event.window.data1;
-				height = event.window.data2;
-				glViewport(0, 0, width, height);
-			}
-		}
-		
+	while(!ctx->end) {
+		GS_pollevents(ctx);
+
 		glClearColor(0.0f, 0.0f, 0.0f, 1.0f);
 		glClear(GL_COLOR_BUFFER_BIT);
 		
 		glUseProgram(shader_program);
-		float time = SDL_GetTicks() / 1000.0f;
+		float time = GS_gettime(ctx);
 		glUniform1f(time_loc, time);
-		glUniform1f(sclx_loc, 1.0f);
-		glUniform1f(scly_loc, 1.0f);
-		glUniform1f(szx_loc, width);
-		glUniform1f(szy_loc, height);
-		
+		glUniformMatrix2fv(win_loc, 1, GL_TRUE, win);
+		glUniform2f(sz_loc, ctx->width, ctx->height);	
 		glBindVertexArray(VAO);
 		glDrawArrays(GL_TRIANGLES, 0, 6);
 		
-		SDL_GL_SwapWindow(window);
+		GS_swapframe(ctx);
 	}
 	
 	glDeleteVertexArrays(1, &VAO);
 	glDeleteBuffers(1, &VBO);
 	glDeleteProgram(shader_program);
 	
-	SDL_GL_DeleteContext(context);
-	SDL_DestroyWindow(window);
-	SDL_Quit();
-	
+	GS_quit(ctx);
 	return 0;
 }

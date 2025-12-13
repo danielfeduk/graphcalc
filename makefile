@@ -1,6 +1,6 @@
 -include config.mk
 LFLAGS+= -lSDL2 -lepoxy -lGL -lm
-OBJ= lex.gen.o parse.gen.o driver.o compile.o
+OBJ= lex.gen.o parse.gen.o driver.o compile.o sdl.o
 PROG= graphcalc
 .PHONY: all clean
 
